@@ -1,9 +1,11 @@
 // src/services/openai-service.js
-const analyzeContent = async (content) => {
-    try {
-        // Añadir delay entre peticiones
-        await new Promise(resolve => setTimeout(resolve, 2000));
+const RETRY_DELAY = 5000; // 5 segundos entre intentos
+const MAX_RETRIES = 3;
 
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+const analyzeContent = async (content, retryCount = 0) => {
+    try {
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -17,18 +19,17 @@ const analyzeContent = async (content) => {
                     content: "Analiza el contenido SEO de este artículo y proporciona un análisis estructurado."
                 }, {
                     role: "user",
-                    content: `URL: ${content}\nProporciona un análisis SEO detallado incluyendo puntuación, palabras clave y recomendaciones.`
-                }],
-                temperature: 0.7
+                    content: `URL: ${content}\nProporciona un análisis SEO detallado.`
+                }]
             })
         });
 
         if (response.status === 429) {
-            throw new Error('Límite de peticiones excedido. Por favor, espera unos segundos.');
-        }
-
-        if (!response.ok) {
-            throw new Error(`Error en la API: ${response.status}`);
+            if (retryCount < MAX_RETRIES) {
+                await delay(RETRY_DELAY);
+                return analyzeContent(content, retryCount + 1);
+            }
+            throw new Error('Límite de peticiones excedido después de varios intentos.');
         }
 
         const data = await response.json();
