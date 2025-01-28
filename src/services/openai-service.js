@@ -1,17 +1,28 @@
 // src/services/openai-service.js
-const DELAY_BETWEEN_REQUESTS = 15000; // Aumentado a 15 segundos
-const MAX_RETRIES = 3;
-const BASE_DELAY = 20000; // Delay base de 20 segundos
 
-const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-
-const analyzeContent = async (url, retryCount = 0) => {
+const analyzeContent = async (data) => {
     try {
-        // Delay exponencial basado en intentos
-        const waitTime = BASE_DELAY * Math.pow(2, retryCount);
-        console.log(`Esperando ${waitTime/1000}s antes de analizar URL...`);
-        await delay(waitTime);
-
+        // Preparar datos para el análisis
+        const urlsToAnalyze = data.map(item => ({
+            editor: item.editor,
+            url: item.url,
+            titulo: item.titulo
+        }));
+ 
+        const prompt = `Por favor realiza un análisis SEO de los siguientes artículos:
+ 
+ ${urlsToAnalyze.map((item, index) => `
+ ${index + 1}. Artículo por ${item.editor}
+ URL: ${item.url}
+ Título: ${item.titulo}
+ `).join('\n')}
+ 
+ Para cada artículo proporciona:
+ - Evaluación del título
+ - Recomendaciones SEO principales
+ - Puntos de mejora
+ `;
+ 
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -22,35 +33,35 @@ const analyzeContent = async (url, retryCount = 0) => {
                 model: "gpt-3.5-turbo",
                 messages: [{
                     role: "system",
-                    content: "Analiza el SEO de la URL proporcionada"
+                    content: "Eres un experto en SEO especializado en análisis de contenido editorial. Proporciona análisis concisos y accionables."
                 }, {
                     role: "user",
-                    content: `URL a analizar: ${url}`
+                    content: prompt
                 }],
                 temperature: 0.7,
-                max_tokens: 150
+                max_tokens: 2000,
+                presence_penalty: 0.1,
+                frequency_penalty: 0.1
             })
         });
-
-        if (response.status === 429) {
-            if (retryCount < MAX_RETRIES) {
-                console.log(`Rate limit alcanzado. Reintento ${retryCount + 1}/${MAX_RETRIES}`);
-                return analyzeContent(url, retryCount + 1);
-            }
-            throw new Error('Límite de solicitudes alcanzado');
-        }
-
+ 
         if (!response.ok) {
-            throw new Error(`Error API: ${response.status}`);
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(`Error API: ${response.status} - ${errorData.error?.message || 'Error desconocido'}`);
         }
-
-        const data = await response.json();
-        return data.choices[0].message.content || 'No se pudo obtener análisis';
-
+ 
+        const result = await response.json();
+        
+        if (!result.choices || !result.choices[0] || !result.choices[0].message) {
+            throw new Error('Respuesta inválida de la API');
+        }
+ 
+        return result.choices[0].message.content;
+ 
     } catch (error) {
-        console.error('Error:', error);
-        throw error;
+        console.error('Error en el análisis:', error);
+        throw new Error(`No se pudo completar el análisis: ${error.message}`);
     }
-};
-
-export { analyzeContent };
+ };
+ 
+ export { analyzeContent };
